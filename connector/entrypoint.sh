@@ -102,6 +102,12 @@ if [[ -z "${AWS_EC2_METADATA_DISABLED:-}" ]]; then
   export AWS_EC2_METADATA_DISABLED="true"
 fi
 
+if [[ -z "${AWS_ACCESS_KEY_ID:-}" && -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+  # LocalStack-style environments typically accept any credentials; default to dummy values.
+  export AWS_ACCESS_KEY_ID="test"
+  export AWS_SECRET_ACCESS_KEY="test"
+fi
+
 log "starting tunnel + wireguard (iface=$WG_IFACE, local_udp=127.0.0.1:${LOCAL_WG_UDP_PORT})"
 
 headers_file="$(mktemp)"
