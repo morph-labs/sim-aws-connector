@@ -31,5 +31,6 @@ Inside the container:
 - `AWS_REGION` / `AWS_DEFAULT_REGION` default to the first region in the connect bundle (if not already set).
 - `AWS_PAGER` defaults to empty (paging disabled).
 - Dummy credentials are set if `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are both unset.
+- The tunnel client sends periodic WebSocket pings and reconnects automatically if the gateway closes idle connections.
 
 AWS CLI/SDKs should work with default endpoints (no `--endpoint-url`) as long as your AWS credentials are available via env vars/profiles.
