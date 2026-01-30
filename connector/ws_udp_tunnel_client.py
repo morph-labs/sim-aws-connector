@@ -10,6 +10,7 @@ import secrets
 import socket
 import ssl
 import struct
+import sys
 import urllib.parse
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -214,8 +215,17 @@ async def run_tunnel(*, ws_url: str, udp_listen: str, extra_headers: list[str]) 
                 await writer.drain()
                 return
 
+    async def keepalive_ping(interval_s: float) -> None:
+        if interval_s <= 0:
+            return
+        while True:
+            await asyncio.sleep(interval_s)
+            writer.write(_ws_make_frame_client(0x9, b"ping"))
+            await writer.drain()
+
     try:
-        await asyncio.gather(udp_to_ws(), ws_to_udp())
+        interval_s = float(os.environ.get("SIM_AWS_TUNNEL_PING_INTERVAL_S", "20"))
+        await asyncio.gather(udp_to_ws(), ws_to_udp(), keepalive_ping(interval_s))
     finally:
         try:
             writer.close()
@@ -225,13 +235,32 @@ async def run_tunnel(*, ws_url: str, udp_listen: str, extra_headers: list[str]) 
         udp.close()
 
 
+async def run_forever(*, ws_url: str, udp_listen: str, extra_headers: list[str]) -> None:
+    """
+    Keep the UDP<->WS tunnel alive for long-lived connector sessions.
+
+    The Morph instance HTTP gateway (or intermediaries) may close idle WebSockets; this loop
+    reconnects with exponential backoff.
+    """
+    backoff_s = 1.0
+    max_backoff_s = 30.0
+    while True:
+        try:
+            await run_tunnel(ws_url=ws_url, udp_listen=udp_listen, extra_headers=extra_headers)
+        except Exception as e:
+            # Best-effort, single-line log (no secrets).
+            print(f"[ws_udp_tunnel_client] WARN: tunnel disconnected: {type(e).__name__}: {e}", file=sys.stderr)
+        await asyncio.sleep(backoff_s)
+        backoff_s = min(max_backoff_s, backoff_s * 2.0)
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description="UDP<->WebSocket relay client (no deps; for Sim-AWS ws_udp_tunnel.py)")
     p.add_argument("--ws-url", required=True, help="ws:// or wss:// URL for the tunnel server")
     p.add_argument("--udp-listen", default="127.0.0.1:51820", help="UDP listen host:port (default 127.0.0.1:51820)")
     p.add_argument("--header", action="append", default=[], help="Extra HTTP header to include (repeatable)")
     args = p.parse_args()
-    asyncio.run(run_tunnel(ws_url=args.ws_url, udp_listen=args.udp_listen, extra_headers=args.header))
+    asyncio.run(run_forever(ws_url=args.ws_url, udp_listen=args.udp_listen, extra_headers=args.header))
     return 0
 
 
