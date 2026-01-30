@@ -27,4 +27,8 @@ docker run --rm -it \
   --bundle /bundle.json
 ```
 
-Inside the container, AWS CLI/SDKs should work with default endpoints (no `--endpoint-url`) as long as your AWS credentials are available via env vars/profiles.
+Inside the container:
+- `AWS_REGION` / `AWS_DEFAULT_REGION` default to the first region in the connect bundle (if not already set).
+- `AWS_PAGER` defaults to empty (paging disabled).
+
+AWS CLI/SDKs should work with default endpoints (no `--endpoint-url`) as long as your AWS credentials are available via env vars/profiles.
