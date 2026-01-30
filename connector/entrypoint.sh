@@ -86,6 +86,22 @@ tls_ca_fingerprint_sha256="$(jq -r '.tls.ca_fingerprint_sha256 // empty' "$bundl
 
 allowed_ips_csv="$(jq -er '.wg.allowed_ips | if type=="array" then join(",") else . end' "$bundle_file")"
 
+default_region="$(jq -r '.aws.regions[0] // empty' "$bundle_file")"
+if [[ -z "${AWS_REGION:-}" && -n "$default_region" ]]; then
+  export AWS_REGION="$default_region"
+fi
+if [[ -z "${AWS_DEFAULT_REGION:-}" && -n "${AWS_REGION:-}" ]]; then
+  export AWS_DEFAULT_REGION="$AWS_REGION"
+fi
+if [[ -z "${AWS_PAGER+x}" ]]; then
+  # Disable AWS CLI paging by default (the image may not ship `less`).
+  export AWS_PAGER=""
+fi
+if [[ -z "${AWS_EC2_METADATA_DISABLED:-}" ]]; then
+  # Avoid slow IMDS lookups in containers.
+  export AWS_EC2_METADATA_DISABLED="true"
+fi
+
 log "starting tunnel + wireguard (iface=$WG_IFACE, local_udp=127.0.0.1:${LOCAL_WG_UDP_PORT})"
 
 headers_file="$(mktemp)"
