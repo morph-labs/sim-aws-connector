@@ -60,16 +60,20 @@ LOCAL_WG_UDP_PORT="${LOCAL_WG_UDP_PORT:-51820}"
 
 tunnel_ws_url="$(jq -er '.tunnel_ws_url' "$bundle_file")"
 
-auth_header_name="$(jq -er '.auth.header_name' "$bundle_file")"
-auth_header_value_template="$(jq -er '.auth.header_value_template' "$bundle_file")"
+auth_header_name="$(jq -r '.auth.header_name // empty' "$bundle_file")"
+auth_header_value_template="$(jq -r '.auth.header_value_template // empty' "$bundle_file")"
 
 MORPH_API_KEY="${MORPH_API_KEY:-}"
-[[ -n "$MORPH_API_KEY" ]] || die "MORPH_API_KEY is required (do not pass it on the command line; use -e MORPH_API_KEY)"
 
-if [[ "$auth_header_value_template" != *'${MORPH_API_KEY}'* ]]; then
-  die "auth.header_value_template must contain \${MORPH_API_KEY}"
+auth_header_value=""
+if [[ -n "$auth_header_name" || -n "$auth_header_value_template" ]]; then
+  [[ -n "$auth_header_name" && -n "$auth_header_value_template" ]] || die "auth.header_name and auth.header_value_template must both be set or both be omitted"
+  [[ -n "$MORPH_API_KEY" ]] || die "MORPH_API_KEY is required by this connect bundle's auth (use -e MORPH_API_KEY)"
+  if [[ "$auth_header_value_template" != *'${MORPH_API_KEY}'* ]]; then
+    die "auth.header_value_template must contain \${MORPH_API_KEY}"
+  fi
+  auth_header_value="${auth_header_value_template//'${MORPH_API_KEY}'/$MORPH_API_KEY}"
 fi
-auth_header_value="${auth_header_value_template//'${MORPH_API_KEY}'/$MORPH_API_KEY}"
 
 wg_client_private_key="$(jq -er '.wg.client_private_key' "$bundle_file")"
 wg_client_address="$(jq -er '.wg.client_address' "$bundle_file")"
@@ -110,9 +114,12 @@ fi
 
 log "starting tunnel + wireguard (iface=$WG_IFACE, local_udp=127.0.0.1:${LOCAL_WG_UDP_PORT})"
 
-headers_file="$(mktemp)"
-chmod 600 "$headers_file"
-printf '%s: %s\n' "$auth_header_name" "$auth_header_value" >"$headers_file"
+headers_file=""
+if [[ -n "$auth_header_name" ]]; then
+  headers_file="$(mktemp)"
+  chmod 600 "$headers_file"
+  printf '%s: %s\n' "$auth_header_name" "$auth_header_value" >"$headers_file"
+fi
 
 ca_file=""
 if [[ -n "$tls_ca_cert_pem" ]]; then
@@ -189,11 +196,15 @@ pin_route_to_hostport() {
 hostport="$(extract_url_hostport "$tunnel_ws_url")"
 pin_route_to_hostport "$hostport"
 
-TUNNEL_HEADER="$(cat "$headers_file")"
-python3 /usr/local/bin/ws_udp_tunnel_client.py \
-  --ws-url "$tunnel_ws_url" \
-  --udp-listen "127.0.0.1:${LOCAL_WG_UDP_PORT}" \
-  --header "$TUNNEL_HEADER" &
+ws_args=(
+  --ws-url "$tunnel_ws_url"
+  --udp-listen "127.0.0.1:${LOCAL_WG_UDP_PORT}"
+)
+if [[ -n "$headers_file" ]]; then
+  TUNNEL_HEADER="$(cat "$headers_file")"
+  ws_args+=(--header "$TUNNEL_HEADER")
+fi
+python3 /usr/local/bin/ws_udp_tunnel_client.py "${ws_args[@]}" &
 TUNNEL_PID="$!"
 
 # Wait for UDP listener to appear.
